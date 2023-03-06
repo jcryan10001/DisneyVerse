@@ -1,0 +1,413 @@
+﻿@page "/MainPage"
+@namespace Disneyverse.Pages
+@using Disneyverse.Data
+@using Syncfusion.Blazor
+@using Syncfusion.Blazor.DropDowns
+@using Syncfusion.Blazor.Popups
+@using Syncfusion.Blazor.Grids
+@inject HttpClient HttpClient
+@inject SfDialogService DialogService
+@using System.Timers;
+@using System.Globalization;
+@using System.Text.Json;
+@inject NavigationManager NavigationManager
+@using Microsoft.AspNetCore.WebUtilities;
+@using Microsoft.AspNetCore.Components;
+@using Microsoft.AspNetCore.Http.Extensions
+
+
+<link href="https://www.fontspace.com/madrigal-font-f73965" rel="stylesheet">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+        @{
+            string part = "DisneyVerse part -" + @CurrentBatch;
+          }
+        <a class="navbar-brand" @onclick="@(() => GetDisneyCharacters())" style="font-size:2rem;" href="#">@part</a>
+    </div>
+</nav>
+<div>
+    <div style="display: flex; justify-content: center; align-items: center;">
+        <div style="display: flex; align-items: center; border-radius: 40px; background-color: #fff; padding: 5px 10px;">
+            <input style="border: none; outline: none; width: 100%;" type="search" @bind="searchText" placeholder="Search Disney characters..." @onkeydown="Search" />
+            @if (!string.IsNullOrWhiteSpace(searchText))
+            {
+                <button style="border: none; background-color: transparent; outline: none;" @onclick="() => ClearSearch()">
+                    <i class="fa fa-times"></i>
+                </button>
+            }
+            <button style="border: none; background-color: #4CAF50; color: #fff; margin-left: 10px; padding: 5px 10px; border-radius: 40px; cursor: pointer;" @onclick="Search">Search</button>
+        </div>
+    </div>
+
+    @if (loadedCharacters != null)
+    {
+        <table class="table">
+            <colgroup>
+                <col style="width: 10%" />
+                <col style="width: 60%" />
+                <col style="width: 30%" />
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Image</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var character in PagedCharacters)
+                {
+                    <tr>
+                        <td class="magic">@character.Id</td>
+                        <td class="magic"><a href="#" @onclick="() => Navigate(character)">@character.Name</a></td>
+                        <td><img style="border-radius:50px;" src="@character.ImageUrl" alt="@character.Name" width="50" height="50" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="pagination">
+            @if (loadedCharacters != null && loadedCharacters.Count > 0)
+            {
+                    // Check if current page is greater than 1
+                @if (CurrentPage > 1)
+                {
+                    // Display "Load Previous" button to load previous batch of characters
+                    <button class="btn" onclick="@(() => LoadPrevious())">Load Previous</button>
+                    // Display "Previous" button to navigate to previous page
+                    <button class="btn" onclick="@(() => UpdateCurrentPage(CurrentPage - 1))">Previous</button>
+                }
+                // If current page is the first page
+                @if (CurrentPage == 1)
+                {
+                    // Display "Load Previous" button to load previous batch of characters
+                    <button class="btn" onclick="@(() => LoadPrevious())">Load Previous</button>
+                }
+                // Loop through pages within 2 of the current page
+                @for (int i = Math.Max(1, CurrentPage - 2); i <= Math.Min(pageCount, CurrentPage + 2); i++)
+                {
+                    // Store page number in a variable
+                    int pageNumber = i;
+                    // Display page number as button, and add "active" class if it's the current page
+                    <button class="btn @(CurrentPage == pageNumber ? "active" : "")" @onclick="() => UpdateCurrentPage(pageNumber)">@pageNumber</button>
+                }
+                // If current page is the last page in the current batch
+                @if (CurrentPage == 5)
+                {
+                    // Display "Load Next" button to load next batch of characters
+                    <button class="btn" onclick="@(() => LoadNext())">Load Next</button>
+                }
+                // If there are more pages after the current page
+                @if (CurrentPage < Math.Ceiling((double)loadedCharacters.Count / itemsPerPage))
+                {
+                    // Display "Next" button to navigate to next page
+                    <button class="btn" onclick="@(() => UpdateCurrentPage(CurrentPage + 1))">Next</button>
+                    // Display "Load Next" button to load next batch of characters
+                    <button class="btn" onclick="@(() => LoadNext())">Load Next</button>
+                }
+            }
+
+
+        </div>
+
+    }
+</div>
+
+@code {
+    private List<DisneyCharacter> loadedCharacters;
+    DisneyCharacterResponse currentResponse;
+    [Parameter]
+    public int CurrentPage { get; set; }
+    [Parameter]
+    public int CurrentBatch { get; set; }
+    private int itemsPerPage = 10;
+    private string currentQuery { get; set; } = "https://api.disneyapi.dev/characters?page_size=1";
+    private int pageCount => (int)Math.Ceiling((double)loadedCharacters.Count / itemsPerPage);
+    private int TotalPages = 0;
+    private string searchText = "";
+    private List<DisneyCharacter> filteredCharacters;
+
+    // This function updates the list of characters based on the search text. If the search text is empty, then all the loaded characters are displayed.
+    // Otherwise, the list of characters displayed is filtered to include only those whose names contain the search text (case-insensitive).
+    private void UpdateFilteredCharacters()
+    {
+        if (string.IsNullOrEmpty(searchText))
+        {
+            filteredCharacters = loadedCharacters;
+        }
+        else
+        {
+            filteredCharacters = loadedCharacters
+                .Where(c => c.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+    // This function clears the search text and calls the search function.
+    public async Task ClearSearch()
+    {
+        searchText = "";
+        await Search();
+        StateHasChanged();
+    }
+
+    // This function updates the list of characters displayed based on the search text. If the search text is empty, then all the loaded characters are displayed.
+    // Otherwise, the list of characters displayed is filtered to include only those whose names contain the search text (case-insensitive).
+    public async Task Search()
+    {
+        if (string.IsNullOrEmpty(searchText))
+        {
+            filteredCharacters = loadedCharacters;
+            PagedCharacters = loadedCharacters;
+        }
+        else
+        {
+            filteredCharacters = loadedCharacters
+                .Where(c => c.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            PagedCharacters = loadedCharacters
+           .Where(c => c.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+           .ToList();
+        }
+    }
+
+    // This function loads the next batch of characters.
+    private async Task LoadNext()
+    {
+        if (CurrentBatch < TotalPages)
+        {
+            CurrentPage += 5;
+            if (CurrentPage > pageCount)
+            {
+                CurrentPage = pageCount;
+            }
+            PagedCharacters = loadedCharacters.Skip((CurrentPage - 1) * itemsPerPage).Take(itemsPerPage);
+            currentQuery = currentResponse.NextPage;
+            await GetDisneyCharacters();
+            UpdateCurrentPage(1);
+            StateHasChanged();
+        }
+        else
+        {
+            await DialogService.AlertAsync("This is the Last Page!");
+        }
+    }
+    // This function loads the previous batch of characters.
+    private async Task LoadPrevious()
+    {
+        if (CurrentBatch > 1)
+        {
+            CurrentPage -= 5;
+            if (CurrentPage < 1)
+            {
+                CurrentPage = 1;
+            }
+            PagedCharacters = loadedCharacters.Skip((CurrentPage - 1) * itemsPerPage).Take(itemsPerPage);
+            currentQuery = currentResponse.PreviousPage;
+            await GetDisneyCharacters();
+            UpdateCurrentPage(1);
+            StateHasChanged();
+        }
+        else
+        {
+            await DialogService.AlertAsync("This is the First Page!");
+        }
+    }
+
+    // This function retrieves the Disney characters from the API.
+    public async Task GetDisneyCharacters()
+    {
+        try
+        {
+            var response = await HttpClient.GetFromJsonAsync<DisneyCharacterResponse>($"{currentQuery}");
+            TotalPages = response.TotalPages;
+            loadedCharacters = response.Data;
+            currentResponse = response;
+            // Parse the character ID from the URL and store it in the character object.
+            foreach(var item in currentResponse.Data)
+            {
+                var str = item.Url;
+                string lastNumber = str.Substring(str.LastIndexOf("/") + 1);
+                int number = int.Parse(lastNumber);
+                item.Id = number;
+
+            }
+            // Get the current batch number from the query string.
+            string url = currentQuery;
+            int startIndex = url.LastIndexOf("=") + 1;
+            string pageNumberString = url.Substring(startIndex);
+            CurrentBatch = int.Parse(pageNumberString);
+        }
+        catch (Exception e)
+        {
+            await DialogService.AlertAsync("Error retrieving Disney characters: " + e.Message);
+        }
+    }
+    // This function updates the current page number and the list
+    private void UpdateCurrentPage(int pageNumber)
+    {
+        CurrentPage = pageNumber;
+        PagedCharacters = loadedCharacters.Skip((CurrentPage - 1) * itemsPerPage).Take(itemsPerPage);
+        StateHasChanged();
+    }
+
+    private IEnumerable<DisneyCharacter> PagedCharacters;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Try to retrieve the URI of the current page
+            var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+            var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+
+            // Deserialize current page number and current batch number from the query string
+            if (query.TryGetValue("pageNumber", out var pageNumberValue))
+            {
+                CurrentPage = int.Parse(pageNumberValue);
+            }
+            if (query.TryGetValue("CurrentBatch", out var currentBatchNumberValue))
+            {
+                CurrentBatch = int.Parse(currentBatchNumberValue);
+            }
+        }
+        catch (Exception e)
+        {
+            // Handle exception
+        }
+        // Set the current query to the API endpoint of the current batch
+        if (CurrentPage != 0)
+        {
+            currentQuery = "https://api.disneyapi.dev/characters?page=" + CurrentBatch;
+        }
+        // Retrieve the Disney characters from the API endpoint and update the current page
+        await GetDisneyCharacters();
+        UpdateCurrentPage(CurrentPage);
+        // Update the filtered and paged characters
+        UpdateFilteredCharacters();
+        PagedCharacters = loadedCharacters.Skip((CurrentPage - 1) * itemsPerPage).Take(itemsPerPage);
+    }
+
+    // This function navigates to the DisneyCharacterDetails page with the selected character's information
+    // serialized in the query string along with the current page number and batch number
+    public async Task Navigate(DisneyCharacter character)
+    {
+        // Serialize the character into JSON format for the query string
+        string characterJson = JsonSerializer.Serialize(character);
+
+        // Navigate to the DisneyCharacterDetails page with the character's information and current page/batch numbers
+        NavigationManager.NavigateTo($"/DisneyCharacterDetails?character={characterJson}&pageNumber={CurrentPage}&currentBatchNumber={CurrentBatch}", forceLoad: true);
+    }
+
+}
+
+<style>
+    body {
+        background-image: url("https://app1.weatherwidget.org/skin/img/bg/clear_night.jpg");
+        background-repeat: no-repeat;
+        background-size: cover;
+        background-attachment: fixed;
+        font-family: sans-serif;
+        color: rgb(220,220,220);
+        width: 100vw;
+    }
+
+
+    .e-gridcontent {
+        background-color: transparent;
+    }
+
+    .e-rowcell {
+        background-color: transparent;
+    }
+
+    .e-grid .e-groupdroparea {
+        background-color: red;
+        color: yellow;
+    }
+
+    .pagination {
+        display: flex;
+        justify-content: center;
+        margin-top: 1rem;
+    }
+
+    .btn {
+        background-color: #4CAF50;
+        border: none;
+        color: white;
+        padding: 0.5rem 1rem;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 16px;
+        margin: 0.25rem;
+        cursor: pointer;
+    }
+
+        .btn.active {
+            background-color: #333;
+        }
+
+    .table {
+        color: white;
+    }
+
+    .img {
+        border-radius: 50px;
+    }
+
+    .magic {
+        font-family: 'MyCustomFont', sans-serif;
+    }
+
+    @@font-face {
+        font-family: 'MyCustomFont';
+        src: url('/css/fonts/Madrigal-mLJ92.ttf') format('truetype');
+        font-weight: normal;
+        font-style: normal;
+    }
+
+    span.deleteicon {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+    }
+
+        span.deleteicon span {
+            position: absolute;
+            display: block;
+            right: 3px;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            color: #fff;
+            background-color: #ccc;
+            font: 13px monospace;
+            text-align: center;
+            line-height: 1em;
+            cursor: pointer;
+        }
+
+        span.deleteicon input {
+            padding-right: 18px;
+            box-sizing: border-box;
+        }
+
+    .grid-container {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr); /* define three equal columns */
+        grid-gap: 10px; /* add some space between the columns */
+    }
+
+    .grid-item {
+        position: relative; /* set position to relative so child elements can be positioned absolutely */
+        height: 200px; /* set the height of the grid items */
+    }
+
+        .grid-item > div {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%); /* center the contents of the grid items vertically and horizontally */
+        }
+</style>

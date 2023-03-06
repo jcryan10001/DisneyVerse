@@ -1,0 +1,159 @@
+﻿@page "/DisneyCharacterDetails"
+
+@inject NavigationManager NavigationManager
+@using Disneyverse.Data
+@using Microsoft.AspNetCore.WebUtilities;
+@using Syncfusion.Blazor
+@using Syncfusion.Blazor.DropDowns
+@using Syncfusion.Blazor.Popups
+@using Syncfusion.Blazor.Grids
+@using System.Text.Json;
+@inject HttpClient HttpClient
+@inject SfDialogService DialogService
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" style="font-size:2rem;" href="#">DisneyVerse</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse right" id="navbarNav">
+        </div>
+    </div>
+</nav>
+<div><a href="#" @onclick="@(() => GoBack())">Go Back</a></div>
+
+    @if (character != null)
+    {
+       
+    <div style="display: flex; justify-content: center; align-items: center; margin-top: 20px;">
+        <div style="display: flex; align-items: center; border-radius: 40px; padding: 5px 10px;">
+            @*<div style="margin-right: 10px;">@character.Id</div>*@
+            <div style="margin-right: 10px;">@character.Name</div>
+            <div><img style="border-radius:50px; margin-left:0px;" src="@character.ImageUrl" alt="@character.Name" width="100" height="100" /></div>
+        </div>
+    </div>
+
+        <div class="disney-grid">
+            <div>
+                <h2>Films</h2>
+                <ul>
+                @foreach (var film in character.Films)// Loop through each film in the list of films for the character
+                {
+                    <li>@film</li>
+                    // Display the name of the film in a list item element
+                }
+                </ul>
+            </div>
+            <div>
+                <h2>TV Shows</h2>
+                <ul>
+                @foreach (var show in character.TvShows)// Loop through each TV show in the list of TV shows for the character
+                {
+                    <li>@show</li>
+                    // Display the name of the TV show in a list item element
+                }
+                </ul>
+            </div>
+            <div>
+                <h2>Video Games</h2>
+                <ul>
+                @foreach (var game in character.VideoGames) // Loop through each video game in the list of video games for the character
+                {
+                    <li>@game</li>
+                    // Display the name of the video game in a list item element
+                }
+                </ul>
+            </div>
+        </div>
+        
+    }
+
+
+@code {
+
+    public SfGrid<DisneyCharacter> disneyGrid2;
+    [Parameter]
+    public int CurrentPage { get; set; }
+    [Parameter]
+    public int CurrentBatch { get; set; }
+
+    public class DisneyCharacter
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public string ImageUrl { get; set; }
+        public List<string> Films { get; set; }
+        public List<string> TvShows { get; set; }
+        public List<string> VideoGames { get; set; }
+
+    }
+
+    public int ID { get; set; }
+
+    public string Name { get; set; }
+
+    private DisneyCharacter character;
+    //The OnInitialized method in this code is executed when the component is being initialized. 
+    // It first gets the current URL using the NavigationManager and parses the query string parameters.
+    //  It then deserializes the JSON object of the character parameter and sets the character property to it. 
+    // If the query string contains pageNumber and currentBatchNumber parameters, their values are parsed and assigned to the CurrentPage and CurrentBatch properties, respectively.
+    protected override void OnInitialized()
+    {
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        var characterJson = query["character"];
+        character = JsonSerializer.Deserialize<DisneyCharacter>(characterJson);
+        if (QueryHelpers.ParseQuery(uri.Query).TryGetValue("pageNumber", out var pageNumberValue))
+        {
+            CurrentPage = int.Parse(pageNumberValue);
+        }
+        if (QueryHelpers.ParseQuery(uri.Query).TryGetValue("currentBatchNumber", out var currentBatchNumberValue))
+        {
+            CurrentBatch = int.Parse(currentBatchNumberValue);
+        }
+    }
+    //The GoBack method is used to navigate back to the main page by calling NavigationManager.
+    // NavigateTo method with a URL that contains the current page number and batch number in the query string.
+    public async Task GoBack()
+    {
+        NavigationManager.NavigateTo($"/MainPage?pageNumber={CurrentPage}&CurrentBatch={CurrentBatch}");
+    }
+
+}
+<style>
+    .disney-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        grid-gap: 20px;
+    }
+
+        .disney-grid h2 {
+            margin: 0;
+            text-align: center;
+            text-decoration:underline;
+        }
+
+        .disney-grid ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+            font-size: 1rem;
+        }
+
+        .disney-grid li {
+            margin-bottom: 5px;
+
+        }
+
+    body {
+        background-image: url("https://app1.weatherwidget.org/skin/img/bg/clear_night.jpg");
+        background-repeat: no-repeat;
+        background-size: cover;
+        background-attachment: fixed;
+        font-family: sans-serif;
+        color: rgb(220,220,220);
+        width: 100vw;
+    }
+</style>
